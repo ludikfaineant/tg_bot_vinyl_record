@@ -3,9 +3,10 @@ CREATE TABLE users (
     telegram_id INTEGER UNIQUE
 );
 
-CREATE TABLE processed_videos (
+CREATE TABLE album_videos (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id),
     video_path VARCHAR NOT NULL,
+    title VARCHAR,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
