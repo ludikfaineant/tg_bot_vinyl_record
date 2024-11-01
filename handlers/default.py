@@ -2,10 +2,10 @@ from aiogram import types, F
 from aiogram.filters import Command, StateFilter
 from aiogram.types import FSInputFile, ContentType, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
-from app.database import AsyncSessionLocal
-from app.models import User, AlbumVideo
+from database.database import AsyncSessionLocal
+from database.models import User, AlbumVideo
 from sqlalchemy.future import select
-from app.media_processing import create_rotating_media_video, download_file
+from services.media_processing import create_rotating_media_video, download_file
 from app.bot_instance import bot, dp
 from moviepy.editor import AudioFileClip
 from datetime import datetime
