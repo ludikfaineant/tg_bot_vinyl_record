@@ -12,9 +12,10 @@ from datetime import datetime
 from data.states import Form
 import os
 from services.utils import clear_temp_files, process_media_video
+import asyncio
 
 router = Router()
-
+semaphore = asyncio.Semaphore(10)
 
 @router.message(StateFilter(Form.waiting_for_media), F.content_type.in_([ContentType.PHOTO, ContentType.VIDEO, ContentType.VIDEO_NOTE]))
 async def handle_media(message: types.Message, state: FSMContext):
@@ -72,20 +73,21 @@ async def without_timecodes_handler(message: types.Message, state: FSMContext):
 @router.message(StateFilter(Form.waiting_for_timecodes), F.text.regexp(r"\d{2}:\d{2}"))
 async def timecodes_input_handler(message: types.Message, state: FSMContext):
     """Обработчик для ввода тайм-кодов пользователем."""
-    try:
-        timecodes = {}
-        for entry in message.text.split(","):
-            time_minutes, time_seconds = map(int, entry.strip().split(":"))
-            timecode = time_minutes * 60 + time_seconds
-            if 'start' not in timecodes:
-                timecodes['start'] = timecode
-            else:
-                timecodes['end'] = timecode
+    async with semaphore:
+        try:
+            timecodes = {}
+            for entry in message.text.split(","):
+                time_minutes, time_seconds = map(int, entry.strip().split(":"))
+                timecode = time_minutes * 60 + time_seconds
+                if 'start' not in timecodes:
+                    timecodes['start'] = timecode
+                else:
+                    timecodes['end'] = timecode
 
-        if 'start' in timecodes and 'end' in timecodes:
-            await process_media_video(message, state, start=timecodes['start'], end=timecodes['end'])
-        else:
-            await message.reply("Укажите оба тайм-кода: начало и конец.")
-    except ValueError:
-        await message.reply("Ошибка в формате тайм-кодов. Попробуйте ещё раз, используя формат: 00:30, 02:15")
+            if 'start' in timecodes and 'end' in timecodes:
+                await process_media_video(message, state, start=timecodes['start'], end=timecodes['end'])
+            else:
+                await message.reply("Укажите оба тайм-кода: начало и конец.")
+        except ValueError:
+            await message.reply("Ошибка в формате тайм-кодов. Попробуйте ещё раз, используя формат: 00:30, 02:15")
 
