@@ -1,37 +1,33 @@
 import os
-from aiogram import types, F, Router
-from aiogram.filters import Command, StateFilter
-from aiogram.types import FSInputFile, ContentType, ReplyKeyboardMarkup, KeyboardButton
+import asyncio
+from aiogram import types
+from aiogram.types import FSInputFile
 from aiogram.fsm.context import FSMContext
 from database.database import AsyncSessionLocal
 from database.models import User, AlbumVideo
 from sqlalchemy.future import select
-from services.media_processing import create_rotating_media_video, download_file
+from services.media_processing import create_rotating_media_video
 from app.bot_instance import bot
 from datetime import datetime
-from data.states import Form
 from moviepy.editor import AudioFileClip
+from data.callbacks import DefaultCallbacks
+from aiogram_ui import KB,B
 
-async def clear_temp_files(files):
-    for file in files:
-        if os.path.exists(file):
+
+import os
+from aiogram.fsm.context import FSMContext
+
+async def clear_temp_files(state: FSMContext):
+    data = await state.get_data()
+    media_path = data.get('media_path')
+    audio_path = data.get('audio_path')
+    files_to_remove = [media_path, audio_path]
+    for file in files_to_remove:
+        if file and os.path.exists(file):
             os.remove(file)
+    state.clear()
 
-async def show_album(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(AlbumVideo).filter_by(user_id=user_id))
-        album_videos = result.scalars().all()
-        if not album_videos:
-            await message.reply("Ваш альбом пуст. Отправьте фото или видео для записи.")
-            return
-
-        titles = [video.title for video in album_videos]
-        await message.reply("Ваш альбом:\n" + "\n".join(titles) + "\nВведите название видео, чтобы получить его.")
-    await state.set_state(Form.waiting_for_album_selection)
-
-
-async def process_media_video(message: types.Message, state: FSMContext, start=0, end=60):
+async def process_media_video(message:types.Message, state: FSMContext, start=0, end=60):
     """Универсальная функция для обработки видео с учётом тайм-кодов."""
     data = await state.get_data()
     media_path = data.get('media_path')
@@ -43,26 +39,35 @@ async def process_media_video(message: types.Message, state: FSMContext, start=0
         await message.reply("Произошла ошибка. Убедитесь, что вы отправили медиа и аудио.")
         await state.clear()
         return
-
+    
+            
     timecodes = {'start': start, 'end': end}
     video_path = await create_rotating_media_video(media_path, media_type, audio_path, timecodes)
     
     if video_path:
         # Отправляем видео или видео-записку в зависимости от типа медиа
-        await bot.send_video_note(message.chat.id, FSInputFile(video_path))
-        # Добавляем кнопки для сохранения в альбом
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-            [types.KeyboardButton(text="Сохранить в альбом")],
-            [types.KeyboardButton(text="Не сохранять")]
-        ])
-        await message.reply("Хотите ли вы сохранить это видео в альбом?", reply_markup=markup)
-        
-        # Обновляем данные состояния с путем видео и переходим к следующему состоянию
-        await state.update_data(video_path=video_path)
-        await state.set_state(Form.confirm_save_to_album)
 
-        # Очищаем временные файлы
-        await clear_temp_files([media_path, audio_path, video_path])
+        markup = KB(B("Записать еще", DefaultCallbacks.record))    
+        message_with_video = await bot.send_video_note(message.chat.id, FSInputFile(video_path), reply_markup=markup)
+        os.remove(video_path)
+        file_id = message_with_video.video_note.file_id
+        user_id = message.from_user.id
+
+        if not file_id:
+            await message.reply("Ошибка: видео не найдено.")
+            await state.clear()
+            return
+
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                result = await session.execute(select(User).filter_by(telegram_id=user_id))
+                user = result.scalars().first()
+                if user:
+                    album_video = AlbumVideo(user_telegram_id=user_id, file_id=file_id, created_at=datetime.now())
+                    session.add(album_video)
+                    await session.commit()
+
+        await clear_temp_files(state)
     else:
         audio_clip = AudioFileClip(audio_path)
         audio_duration = f"{int(audio_clip.duration // 60)}:{int(audio_clip.duration % 60):02}"

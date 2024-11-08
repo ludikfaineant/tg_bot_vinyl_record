@@ -1,23 +1,22 @@
 from aiogram import types, F, Router
-from aiogram.filters import Command, StateFilter
-from aiogram.types import FSInputFile, ContentType, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.filters import StateFilter
+from aiogram.types import  ContentType
 from aiogram.fsm.context import FSMContext
-from database.database import AsyncSessionLocal
-from database.models import User, AlbumVideo
-from sqlalchemy.future import select
-from services.media_processing import create_rotating_media_video, download_file
-from app.bot_instance import bot, dp
-from moviepy.editor import AudioFileClip
-from datetime import datetime
-from data.states import Form
-import os
-from services.utils import clear_temp_files, process_media_video
 import asyncio
+from aiogram_ui import KB, B
+
+from services.media_processing import download_file
+from services.utils import process_media_video
+from data.states import Form
+from data.callbacks import DefaultCallbacks
+
 
 router = Router()
 semaphore = asyncio.Semaphore(10)
+markup_cancel = KB(B("Отменить запись", DefaultCallbacks.cancel))
 
-@router.message(StateFilter(Form.waiting_for_media), F.content_type.in_([ContentType.PHOTO, ContentType.VIDEO, ContentType.VIDEO_NOTE]))
+
+@router.message(StateFilter(Form.waiting_for_media),F.content_type.in_([ContentType.PHOTO, ContentType.VIDEO, ContentType.VIDEO_NOTE]))
 async def handle_media(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     if message.photo:
@@ -38,7 +37,8 @@ async def handle_media(message: types.Message, state: FSMContext):
     
     media_path = await download_file(media.file_id, media_file_name)
     await state.update_data(media_path=media_path, media_type=media_type)
-    await message.reply("Медиа получено! Теперь отправьте мне аудио.")
+    markup = KB(B("Отменить запись", DefaultCallbacks.cancel))
+    await message.reply("Медиа получено! Теперь отправьте мне аудио.", reply_markup=markup)
     await state.set_state(Form.waiting_for_audio)
 
 
@@ -48,27 +48,32 @@ async def handle_audio(message: types.Message, state: FSMContext):
     audio_path = await download_file(message.audio.file_id, audio_file_name)
     await state.update_data(audio_path=audio_path)
 
-    markup = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
-        [KeyboardButton(text="Без тайм-кодов")],
-        [KeyboardButton(text="С тайм-кодами")]
-    ])
+    markup = KB(B("Без тайм-кодов", DefaultCallbacks.without_time),
+                B("С тайм-кодами", DefaultCallbacks.with_time),
+                B("Отменить запись", DefaultCallbacks.cancel))
+    
     await message.reply("Аудио получено! Какое видео вы хотите создать?", reply_markup=markup)
     await state.set_state(Form.waiting_for_timecodes)
 
-@router.message(StateFilter(Form.waiting_for_timecodes), F.text == "С тайм-кодами")
-async def with_timecodes_handler(message: types.Message, state: FSMContext):
+@router.callback_query(DefaultCallbacks.with_time)
+async def with_timecodes_handler(event:types.CallbackQuery, state: FSMContext):
+    await event.answer()
     data = await state.get_data()
     if data.get('media_path') and data.get('audio_path'):
-        await message.answer("Введите тайм-коды в формате: 00:30, 02:15")
+        await event.message.answer("Введите тайм-коды в формате: 00:10, 00:45")
     else:
-        await message.answer("Сначала отправьте медиа и аудио.")
+        await event.message.answer("Сначала отправьте медиа и аудио.",reply_markup=markup_cancel)
 
 
-@router.message(StateFilter(Form.waiting_for_timecodes), F.text == "Без тайм-кодов")
-async def without_timecodes_handler(message: types.Message, state: FSMContext):
-    """Обработчик для видео без тайм-кодов."""
-    await process_media_video(message, state, start=0, end=60)
-
+@router.callback_query(DefaultCallbacks.without_time)
+async def without_timecodes_handler(event:types.CallbackQuery,state:FSMContext):
+    await event.answer()
+    data = await state.get_data()
+    if data.get('media_path') and data.get('audio_path'):
+        await process_media_video(event.message, state, start=0, end=60)
+    else:
+        await event.message.answer("Сначала отправьте медиа и аудио.",reply_markup=markup_cancel)
+        
 
 @router.message(StateFilter(Form.waiting_for_timecodes), F.text.regexp(r"\d{2}:\d{2}"))
 async def timecodes_input_handler(message: types.Message, state: FSMContext):
@@ -87,7 +92,7 @@ async def timecodes_input_handler(message: types.Message, state: FSMContext):
             if 'start' in timecodes and 'end' in timecodes:
                 await process_media_video(message, state, start=timecodes['start'], end=timecodes['end'])
             else:
-                await message.reply("Укажите оба тайм-кода: начало и конец.")
+                await message.reply("Укажите оба тайм-кода: начало и конец.", reply_markup=markup_cancel)
         except ValueError:
-            await message.reply("Ошибка в формате тайм-кодов. Попробуйте ещё раз, используя формат: 00:30, 02:15")
+            await message.reply("Ошибка в формате тайм-кодов. Попробуйте ещё раз, используя формат: 00:30, 02:15", reply_markup=markup_cancel)
 
