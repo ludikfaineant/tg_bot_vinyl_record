@@ -1,10 +1,10 @@
 import os
 import subprocess
 from typing import Dict, Optional
-from bot_instance import bot
+from aiogram import Bot
 
 
-async def download_file(file_id: str, file_name: str) -> str:
+async def download_file(bot: Bot, file_id: str, file_name: str) -> str:
     file = await bot.get_file(file_id)
     file_path = f"./temp/{file_name}"
     await bot.download_file(file.file_path, file_path)  # type: ignore

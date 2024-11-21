@@ -1,12 +1,13 @@
 import asyncio
-from aiogram import Dispatcher
+from aiogram import Dispatcher, Bot
 from handlers import all_routers
-from bot_instance import bot
 from misc.sqlalchemy_storage import SqlAlchemyStorage
 from database.database import AsyncSessionLocal
+from settings import settings
 
 
 async def main():
+    bot = Bot(settings.bot.token)
 
     dp = Dispatcher(storage=SqlAlchemyStorage(AsyncSessionLocal))
     dp["sessionmaker"] = AsyncSessionLocal

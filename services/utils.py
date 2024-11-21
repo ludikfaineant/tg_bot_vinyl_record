@@ -1,4 +1,4 @@
-from aiogram import types, Bot
+from aiogram import types
 from aiogram.types import FSInputFile
 from aiogram.fsm.context import FSMContext
 from database.database import AsyncSessionLocal
@@ -6,9 +6,8 @@ from database.models.album import AlbumVideo
 from database.models.user import User
 from sqlalchemy.future import select
 from services.media_processing import create_rotating_media_video
-from bot_instance import bot
 from datetime import datetime
-from moviepy.editor import AudioFileClip
+import subprocess, json
 from data.callbacks import DefaultCallbacks
 from aiogram_ui import KB, B
 import os
@@ -53,7 +52,7 @@ async def process_media_video(
 
         markup = KB(B("Записать еще", DefaultCallbacks.record))
 
-        message_with_video = await bot.send_video_note(
+        message_with_video = await message.bot.send_video_note(  # type: ignore
             message.chat.id, FSInputFile(video_path), reply_markup=markup
         )
         os.remove(video_path)
@@ -82,10 +81,23 @@ async def process_media_video(
 
         await clear_temp_files(state)
     else:
-        audio_clip = AudioFileClip(audio_path)
-        audio_duration = (
-            f"{int(audio_clip.duration // 60)}:{int(audio_clip.duration % 60):02}"
+        command = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "json",
+            audio_path,
+        ]
+        result = subprocess.run(
+            command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
+        probe_data = json.loads(result.stdout)
+        duration = float(probe_data["format"]["duration"])
+
+        audio_duration = f"{int(duration // 60)}:{int(duration % 60):02}"
         await message.reply(
             f"Введите корректные тайм-коды. Продолжительность аудио: {audio_duration}"
         )

@@ -37,7 +37,7 @@ async def handle_media(message: types.Message, state: FSMContext):
         await message.reply("Пожалуйста, отправьте фото, видео или видеозаметку.")
         return
 
-    media_path = await download_file(media.file_id, media_file_name)
+    media_path = await download_file(message.bot, media.file_id, media_file_name)  # type: ignore
     await state.update_data(media_path=media_path, media_type=media_type)
     markup = KB(B("Отменить запись", DefaultCallbacks.cancel))
     await message.reply(
@@ -51,7 +51,7 @@ async def handle_media(message: types.Message, state: FSMContext):
 )
 async def handle_audio(message: types.Message, state: FSMContext):
     audio_file_name = f"{message.from_user.id}_audio.mp3"  # type: ignore
-    audio_path = await download_file(message.audio.file_id, audio_file_name)  # type: ignore
+    audio_path = await download_file(message.bot, message.audio.file_id, audio_file_name)  # type: ignore
     await state.update_data(audio_path=audio_path)
 
     markup = KB(
